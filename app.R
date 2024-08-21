@@ -59,26 +59,34 @@ server <- function(input, output, session) {
   # Dynamically generate slider and numeric inputs based on selected columns
   output$sliderInputs <- renderUI({
     selected_cols <- input$columns
-    inputs <- lapply(selected_cols, function(col) {
+    # Filter out the "Postcode" column
+    cols_to_adjust <- setdiff(selected_cols, "Postcode")
+    
+    inputs <- lapply(cols_to_adjust, function(col) {
       sliderInputId <- paste0("mult_", col)
       numericInputId <- paste0("num_", col)
       
       fluidRow(
         column(6, sliderInput(inputId = sliderInputId, 
-                              label = paste("Multiplier", col), 
-                              min = 1, max = 10, value = 1)),
+                              label = paste("Weight", col), 
+                              min = -4, max = 4, value = 1)),
         column(4, numericInput(inputId = numericInputId, 
                                label = "Input", 
                                value = 1))
       )
     })
+    
+    # Combine all inputs into a tag list
     do.call(tagList, inputs)
   })
   
   # Synchronize the slider and numeric inputs
   observe({
     selected_cols <- input$columns
-    lapply(selected_cols, function(col) {
+    # Filter out the "Postcode" column
+    cols_to_adjust <- setdiff(selected_cols, "Postcode")
+    
+    lapply(cols_to_adjust, function(col) {
       sliderInputId <- paste0("mult_", col)
       numericInputId <- paste0("num_", col)
       
@@ -92,29 +100,31 @@ server <- function(input, output, session) {
     })
   })
   
-  # Reactive data frame that normalizes selected columns and applies multipliers
+  # Reactive data frame that scales selected columns and applies multipliers
   reactive_data <- reactive({
     selected_cols <- input$columns
     
-    # Exclude the "Postcode" column from normalization and multiplication
-    cols_to_normalize <- setdiff(selected_cols, "Postcode")
+    # Exclude the "Postcode" column from scaling and multiplication
+    cols_to_scale <- setdiff(selected_cols, "Postcode")
     
-    df <- data %>% select(Postcode, all_of(cols_to_normalize))
+    df <- data %>% select(Postcode, all_of(cols_to_scale))
     
-    # Normalize the selected columns (excluding Postcode)
+    # Min-Max scaling (0 to 1) for the selected columns
     df <- df %>%
-      mutate(across(all_of(cols_to_normalize), ~ scale(.) %>% as.numeric()))
+      mutate(across(all_of(cols_to_scale), 
+                    ~ ( . - min(.) ) / ( max(.) - min(.) )))
     
-    # Apply the multiplier to each normalized column
-    for (col in cols_to_normalize) {
+    # Apply the multiplier to each scaled column
+    for (col in cols_to_scale) {
       multiplier <- input[[paste0("mult_", col)]]
       if (!is.null(multiplier)) {
         df[[col]] <- round(df[[col]] * multiplier, 2)
       }
     }
     
-    # Add a Score column as the product of all normalized and multiplied columns
-    df$Score <- apply(df[, cols_to_normalize], 1, prod)
+    # Calculate the weighted average score
+    weights <- sapply(cols_to_scale, function(col) input[[paste0("mult_", col)]])
+    df$Score <- rowSums(df[, cols_to_scale] * weights, na.rm = TRUE) / sum(weights)
     
     # Move the Score column to the first position
     df <- df %>% select(Score, Postcode, everything())
@@ -131,20 +141,20 @@ server <- function(input, output, session) {
     datatable(reactive_selected_data(), options = list(pageLength = 10))
   })
   
-  # Render the normalized data table with applied multipliers
+  # Render the scaled data table with applied multipliers
   output$table <- renderDT({
-    normalized_data <- reactive_data()
-    datatable(normalized_data, options = list(pageLength = 10))
+    scaled_data <- reactive_data()
+    datatable(scaled_data, options = list(pageLength = 10))
   })
   
-  # Download handler for the normalized data
+  # Download handler for the scaled data
   output$downloadData <- downloadHandler(
     filename = function() {
-      paste("edit-", Sys.Date(), ".xlsx", sep="")
+      paste("scaled-", Sys.Date(), ".xlsx", sep="")
     },
     content = function(file) {
-      normalized_data <- reactive_data()
-      write.xlsx(normalized_data, file)
+      scaled_data <- reactive_data()
+      write.xlsx(scaled_data, file)
     }
   )
 }
