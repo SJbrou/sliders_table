@@ -18,7 +18,7 @@ ui <- navbarPage(
              sidebarPanel(
                checkboxGroupInput("columns", "Select Columns:",
                                   choices = names(data)[sapply(data, is.numeric)],
-                                  selected = names(data)[sapply(data, is.numeric)]),
+                                  selected = if ("Postcode" %in% names(data)) "Postcode" else NULL),
                actionButton("deselect_all", "Deselect All")
              ),
              mainPanel(
@@ -53,7 +53,13 @@ server <- function(input, output, session) {
   
   # Observe the "Deselect All" button click
   observeEvent(input$deselect_all, {
-    updateCheckboxGroupInput(session, "columns", selected = character(0))
+    # Deselect all columns except "Postcode" if it exists
+    new_selection <- if ("Postcode" %in% input$columns) {
+      "Postcode"
+    } else {
+      character(0)
+    }
+    updateCheckboxGroupInput(session, "columns", selected = new_selection)
   })
   
   # Dynamically generate slider and numeric inputs based on selected columns
